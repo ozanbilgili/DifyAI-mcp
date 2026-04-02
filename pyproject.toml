@@ -1,0 +1,11 @@
+[project]
+name = "dify-mcp-server"
+version = "0.1.0"
+description = "MCP server for managing Dify AI workflows as code via Claude Code"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "httpx>=0.28.1",
+    "mcp[cli]>=1.27.0",
+    "pyyaml>=6.0.3",
+]
