@@ -1,85 +1,87 @@
+[**English**](README.md) | [Turkce](README_TR.md)
+
 # Dify Management MCP Server
 
-Dify AI iş akışlarını (workflow) Claude Code terminalinden yönetmek için MCP (Model Context Protocol) sunucusu.
+An MCP (Model Context Protocol) server for managing Dify AI workflows directly from the Claude Code terminal.
 
-Dify'ın görsel arayüzüne gerek kalmadan, Claude Code ile doğrudan workflow oluşturma, düzenleme, test etme ve yayınlama işlemlerini gerçekleştirebilirsiniz.
+No need for Dify's visual interface — you can create, edit, test, and publish workflows directly with Claude Code.
 
-## Gereksinimler
+## Requirements
 
-- [uv](https://docs.astral.sh/uv/) (Python paket yöneticisi)
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
 - [Claude Code](https://claude.ai/claude-code) CLI
-- Çalışan bir [Dify](https://github.com/langgenius/dify) instance'ı (Docker Compose ile)
+- A running [Dify](https://github.com/langgenius/dify) instance (via Docker Compose)
 
-## Kurulum
+## Setup
 
-### 1. Repo'yu klonla
+### 1. Clone the repo
 
 ```bash
 git clone <repo-url> dify-mcp-server
 cd dify-mcp-server
 ```
 
-### 2. uv kur (yoksa)
+### 2. Install uv (if not already installed)
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-### 3. Dify'da Admin API Key aktif et
+### 3. Enable Admin API Key in Dify
 
-Dify'ın `docker/.env` dosyasına ekle:
+Add the following to Dify's `docker/.env` file:
 
 ```ini
 ADMIN_API_KEY_ENABLE=true
-ADMIN_API_KEY=<guclu-bir-anahtar-olustur>
+ADMIN_API_KEY=<generate-a-strong-key>
 ```
 
-Anahtar oluşturmak için:
+To generate a key:
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-**Önemli:** Dify'ın `docker/docker-compose.yaml` dosyasında `x-shared-env` bloğunun içine şu iki satırı ekle (yoksa env değişkenleri container'a geçmez):
+**Important:** Add these two lines inside the `x-shared-env` block in Dify's `docker/docker-compose.yaml` (otherwise the env variables won't be passed to the container):
 
 ```yaml
 x-shared-env: &shared-api-worker-env
-  # ... mevcut değerler ...
+  # ... existing values ...
   ADMIN_API_KEY_ENABLE: ${ADMIN_API_KEY_ENABLE:-false}
   ADMIN_API_KEY: ${ADMIN_API_KEY:-}
 ```
 
-Sonra container'ları yeniden başlat:
+Then restart the containers:
 
 ```bash
 cd docker
 docker compose down && docker compose up -d
 ```
 
-### 4. Workspace ID'ni öğren
+### 4. Get your Workspace ID
 
-Dify'a login olduktan sonra:
+After logging into Dify:
 
 ```bash
-# Önce login ol (şifre base64 encoded olmalı)
-B64PASS=$(echo -n "<sifren>" | base64)
+# First, log in (password must be base64 encoded)
+B64PASS=$(echo -n "<your-password>" | base64)
 curl -s -c /tmp/cookies.txt -X POST http://localhost/console/api/login \
   -H "Content-Type: application/json" \
   -d "{\"email\":\"<email>\",\"password\":\"$B64PASS\"}"
 
-# CSRF token'ı al
+# Get CSRF token
 CSRF=$(grep csrf_token /tmp/cookies.txt | awk '{print $NF}')
 
-# Workspace listesini çek
+# Fetch workspace list
 curl -s -b /tmp/cookies.txt "http://localhost/console/api/workspaces" \
   -H "X-Csrf-Token: $CSRF"
 ```
 
-Çıktıdaki `"id"` değeri senin Workspace ID'n.
+The `"id"` value in the output is your Workspace ID.
 
-### 5. Claude Code'a MCP sunucusunu tanımla
+### 5. Register the MCP server with Claude Code
 
-`~/.claude.json` dosyasındaki `"mcpServers"` bölümüne ekle (veya proje-bazlı `settings.json`'a):
+Add the following to the `"mcpServers"` section in `~/.claude.json` (or project-level `settings.json`):
 
 ```json
 {
@@ -94,189 +96,189 @@ curl -s -b /tmp/cookies.txt "http://localhost/console/api/workspaces" \
       ],
       "env": {
         "DIFY_BASE_URL": "http://localhost",
-        "DIFY_ADMIN_API_KEY": "<senin-admin-api-key>",
-        "DIFY_WORKSPACE_ID": "<senin-workspace-id>"
+        "DIFY_ADMIN_API_KEY": "<your-admin-api-key>",
+        "DIFY_WORKSPACE_ID": "<your-workspace-id>"
       }
     }
   }
 }
 ```
 
-> `/FULL/PATH/TO/dify-mcp-server` kısmını klonladığın dizinin tam yolu ile değiştir.
+> Replace `/FULL/PATH/TO/dify-mcp-server` with the full path to the cloned directory.
 
-### 6. Claude Code'u yeniden başlat
+### 6. Restart Claude Code
 
 ```bash
 claude
 ```
 
-## Kullanım
+## Usage
 
-Claude Code terminalinde doğal dilde komut verebilirsin:
+You can give natural language commands in the Claude Code terminal:
 
 ```
-> Dify'daki uygulamaları listele
-> "Müşteri Destek" uygulamasını YAML olarak çek ve workflow.yaml'a kaydet
-> Bu akışa bir Python node'u ekle, duygu analizi yapsın
-> Değişiklikleri Dify'a gönder ve "Merhaba, çok sinirliydim!" girdisiyle test et
-> Draft'ı yayınla
+> List the apps in Dify
+> Export the "Customer Support" app as YAML and save to workflow.yaml
+> Add a Python node to this workflow that performs sentiment analysis
+> Push the changes to Dify and test with the input "Hello, I was very frustrated!"
+> Publish the draft
 ```
 
-## Özellikler
+## Features
 
-- **Dify-as-Code:** Workflow'ları YAML olarak çek, düzenle, geri yükle — Git ile versiyon kontrolü yap
-- **Tek komutla test:** Workflow'u veya tekil node'ları test modunda çalıştır, sonuçları anında gör
-- **Toplu test:** Birden fazla test case'i tek seferde çalıştır, başarı oranını karşılaştır
-- **Knowledge Base yönetimi:** Dataset oluştur, doküman yükle, RAG retrieval'ı test et
-- **Model & Tool yönetimi:** Model provider'ları ve tool'ları listele, default model'i ayarla
-- **İstatistik & Loglar:** Token maliyeti, günlük kullanım, yanıt süresi, hata oranları
-- **Sağlık kontrolü:** Tüm app'lerin durumunu tek seferde kontrol et
-- **DSL karşılaştırma:** İki YAML sürümünü diff ile karşılaştır
-- **Toplu dışa aktarma:** Tüm app'leri YAML dosyalarına export et
+- **Dify-as-Code:** Export workflows as YAML, edit them, restore — version control with Git
+- **One-command testing:** Run workflows or individual nodes in test mode, see results instantly
+- **Batch testing:** Run multiple test cases at once, compare success rates
+- **Knowledge Base management:** Create datasets, upload documents, test RAG retrieval
+- **Model & Tool management:** List model providers and tools, set default model
+- **Statistics & Logs:** Token cost, daily usage, response time, error rates
+- **Health check:** Check the status of all apps at once
+- **DSL comparison:** Compare two YAML versions with diff
+- **Bulk export:** Export all apps to YAML files
 
-## MCP Araçları (52 Tool)
+## MCP Tools (52 Tools)
 
-### Uygulama Yönetimi
-| Araç | Açıklama |
+### App Management
+| Tool | Description |
 |---|---|
-| `list_apps` | Tüm uygulamaları listeler (sayfalama + filtreleme) |
-| `get_app_detail` | Uygulama detaylarını getirir |
-| `create_app` | Yeni boş uygulama oluşturur |
-| `delete_app` | Uygulamayı siler |
-| `copy_app` | Mevcut uygulamayı kopyalar |
+| `list_apps` | List all apps (with pagination + filtering) |
+| `get_app_detail` | Get app details |
+| `create_app` | Create a new empty app |
+| `delete_app` | Delete an app |
+| `copy_app` | Copy an existing app |
 
 ### DSL Export / Import
-| Araç | Açıklama |
+| Tool | Description |
 |---|---|
-| `get_app_dsl` | Workflow'u YAML DSL olarak export eder |
-| `update_app_dsl` | YAML DSL'i Dify'a import/update eder |
+| `get_app_dsl` | Export workflow as YAML DSL |
+| `update_app_dsl` | Import/update YAML DSL to Dify |
 
-### Workflow Yönetimi
-| Araç | Açıklama |
+### Workflow Management
+| Tool | Description |
 |---|---|
-| `get_workflow_draft` | Draft graf yapısını (node'lar, edge'ler) getirir |
-| `publish_workflow` | Draft'ı aktif sürüm olarak yayınlar |
-| `list_workflow_versions` | Tüm yayınlanmış workflow sürümlerini listeler |
-| `restore_workflow_version` | Eski bir sürümü geri yükler |
-| `run_workflow_test` | Draft workflow'u test modunda çalıştırır |
-| `run_single_node` | Tekil bir node'u test eder |
-| `stop_workflow_task` | Çalışan workflow'u durdurur |
-| `get_default_block_configs` | Node tiplerine göre varsayılan konfigürasyonları getirir |
+| `get_workflow_draft` | Get the draft graph structure (nodes, edges) |
+| `publish_workflow` | Publish the draft as the active version |
+| `list_workflow_versions` | List all published workflow versions |
+| `restore_workflow_version` | Restore a previous version |
+| `run_workflow_test` | Run the draft workflow in test mode |
+| `run_single_node` | Test a single node |
+| `stop_workflow_task` | Stop a running workflow |
+| `get_default_block_configs` | Get default configurations by node type |
 
-### Loglar & Çalışma Geçmişi
-| Araç | Açıklama |
+### Logs & Run History
+| Tool | Description |
 |---|---|
-| `get_workflow_runs` | Workflow çalışma geçmişini listeler |
-| `get_workflow_run_detail` | Belirli bir çalışmanın detayını getirir |
-| `get_node_executions` | Node bazında çalışma detaylarını getirir |
-| `get_workflow_app_logs` | Uygulama loglarını getirir |
+| `get_workflow_runs` | List workflow run history |
+| `get_workflow_run_detail` | Get details of a specific run |
+| `get_node_executions` | Get node-level execution details |
+| `get_workflow_app_logs` | Get app logs |
 
-### İstatistikler
-| Araç | Açıklama |
+### Statistics
+| Tool | Description |
 |---|---|
-| `get_app_statistics` | Mesaj, kullanıcı, token, maliyet, yanıt süresi istatistikleri |
-| `get_workflow_statistics` | Workflow'a özel çalışma ve maliyet istatistikleri |
+| `get_app_statistics` | Message, user, token, cost, response time statistics |
+| `get_workflow_statistics` | Workflow-specific run and cost statistics |
 
-### Knowledge Base (Bilgi Tabanı)
-| Araç | Açıklama |
+### Knowledge Base
+| Tool | Description |
 |---|---|
-| `list_datasets` | Tüm dataset'leri listeler |
-| `create_dataset` | Yeni dataset oluşturur |
-| `get_dataset_detail` | Dataset detaylarını getirir |
-| `delete_dataset` | Dataset'i siler |
-| `list_documents` | Dataset'teki dokümanları listeler |
-| `get_document_segments` | Doküman chunk'larını listeler |
-| `get_dataset_indexing_status` | İndeksleme durumunu gösterir |
-| `hit_testing` | RAG retrieval testi — sorgu ile eşleşen chunk'ları bulur |
-| `get_dataset_related_apps` | Dataset'i kullanan uygulamaları gösterir |
+| `list_datasets` | List all datasets |
+| `create_dataset` | Create a new dataset |
+| `get_dataset_detail` | Get dataset details |
+| `delete_dataset` | Delete a dataset |
+| `list_documents` | List documents in a dataset |
+| `get_document_segments` | List document chunks |
+| `get_dataset_indexing_status` | Show indexing status |
+| `hit_testing` | RAG retrieval test — find chunks matching a query |
+| `get_dataset_related_apps` | Show apps using a dataset |
 
-### Model Provider Yönetimi
-| Araç | Açıklama |
+### Model Provider Management
+| Tool | Description |
 |---|---|
-| `list_model_providers` | Tüm model sağlayıcılarını listeler |
-| `get_provider_models` | Bir sağlayıcının modellerini listeler |
-| `get_default_model` | Varsayılan modeli gösterir |
-| `set_default_model` | Varsayılan modeli ayarlar |
+| `list_model_providers` | List all model providers |
+| `get_provider_models` | List a provider's models |
+| `get_default_model` | Show the default model |
+| `set_default_model` | Set the default model |
 
-### Tool Provider Yönetimi
-| Araç | Açıklama |
+### Tool Provider Management
+| Tool | Description |
 |---|---|
-| `list_tool_providers` | Tüm tool sağlayıcılarını listeler |
-| `list_builtin_tools` | Bir sağlayıcının araçlarını listeler |
-| `list_workflow_tools` | Workflow-as-tool tanımlarını listeler |
+| `list_tool_providers` | List all tool providers |
+| `list_builtin_tools` | List a provider's tools |
+| `list_workflow_tools` | List workflow-as-tool definitions |
 
-### Ortam Değişkenleri
-| Araç | Açıklama |
+### Environment Variables
+| Tool | Description |
 |---|---|
-| `get_environment_variables` | Workflow env var'larını getirir |
-| `get_conversation_variables` | Konuşma değişkenlerini getirir |
+| `get_environment_variables` | Get workflow env vars |
+| `get_conversation_variables` | Get conversation variables |
 
-### API Key Yönetimi
-| Araç | Açıklama |
+### API Key Management
+| Tool | Description |
 |---|---|
-| `list_app_api_keys` | Uygulama API key'lerini listeler |
-| `create_app_api_key` | Yeni API key oluşturur |
-| `delete_app_api_key` | API key'i siler |
+| `list_app_api_keys` | List app API keys |
+| `create_app_api_key` | Create a new API key |
+| `delete_app_api_key` | Delete an API key |
 
-### Etiketler
-| Araç | Açıklama |
+### Tags
+| Tool | Description |
 |---|---|
-| `list_tags` | Tüm etiketleri listeler |
-| `create_tag` | Yeni etiket oluşturur |
+| `list_tags` | List all tags |
+| `create_tag` | Create a new tag |
 
-### Konuşmalar & Mesajlar
-| Araç | Açıklama |
+### Conversations & Messages
+| Tool | Description |
 |---|---|
-| `list_conversations` | Chat konuşmalarını listeler |
-| `list_messages` | Mesajları listeler |
+| `list_conversations` | List chat conversations |
+| `list_messages` | List messages |
 
-### Erişim Kontrolü
-| Araç | Açıklama |
+### Access Control
+| Tool | Description |
 |---|---|
-| `toggle_app_site` | Web arayüzü erişimini aç/kapa |
-| `toggle_app_api` | API erişimini aç/kapa |
+| `toggle_app_site` | Enable/disable web interface access |
+| `toggle_app_api` | Enable/disable API access |
 
-### Üst Seviye Araçlar
-| Araç | Açıklama |
+### High-Level Tools
+| Tool | Description |
 |---|---|
-| `dsl_diff` | İki YAML DSL'i karşılaştırır, farkları gösterir |
-| `batch_test` | Birden fazla test case'i toplu çalıştırır |
-| `health_check` | Tüm app'lerin durumunu ve hata oranlarını kontrol eder |
-| `export_all_apps_dsl` | Tüm uygulamaları YAML dosyalarına toplu export eder |
+| `dsl_diff` | Compare two YAML DSLs, show differences |
+| `batch_test` | Run multiple test cases in batch |
+| `health_check` | Check status and error rates of all apps |
+| `export_all_apps_dsl` | Bulk export all apps to YAML files |
 
-## Ortam Değişkenleri
+## Environment Variables
 
-| Değişken | Zorunlu | Varsayılan | Açıklama |
+| Variable | Required | Default | Description |
 |---|---|---|---|
-| `DIFY_BASE_URL` | Hayır | `http://localhost` | Dify instance URL'i |
-| `DIFY_ADMIN_API_KEY` | Evet | - | Dify Admin API anahtarı |
-| `DIFY_WORKSPACE_ID` | Evet | - | Dify Workspace UUID'si |
+| `DIFY_BASE_URL` | No | `http://localhost` | Dify instance URL |
+| `DIFY_ADMIN_API_KEY` | Yes | - | Dify Admin API key |
+| `DIFY_WORKSPACE_ID` | Yes | - | Dify Workspace UUID |
 
-## Mimari
+## Architecture
 
 ```
 Claude Code  <-->  MCP Server (stdio)  <-->  Dify Console API
-                   (bu proje)                  (localhost/console/api)
+                   (this project)              (localhost/console/api)
                                                      |
                                                 Dify Platform
                                               (Docker Compose)
 ```
 
-MCP sunucusu, Dify Console API'sine `Authorization: Bearer <ADMIN_API_KEY>` + `X-WORKSPACE-ID` header'ları ile bağlanır. Cookie/CSRF gerektirmez.
+The MCP server connects to the Dify Console API with `Authorization: Bearer <ADMIN_API_KEY>` + `X-WORKSPACE-ID` headers. No cookies/CSRF required.
 
-## Sorun Giderme
+## Troubleshooting
 
 **"ADMIN_API_KEY env var not found"**
-- `settings.json`'daki `env` bloğunun doğru olduğunu kontrol et.
+- Check that the `env` block in `settings.json` is correct.
 
 **"401 Unauthorized" / "Invalid token"**
-- `docker-compose.yaml`'da `ADMIN_API_KEY` ve `ADMIN_API_KEY_ENABLE` satırlarının `x-shared-env` altında olduğundan emin ol.
-- `docker compose down && docker compose up -d` ile yeniden başlat.
-- Container içinde env'i kontrol et: `docker compose exec api env | grep ADMIN`
+- Make sure the `ADMIN_API_KEY` and `ADMIN_API_KEY_ENABLE` lines are under `x-shared-env` in `docker-compose.yaml`.
+- Restart with `docker compose down && docker compose up -d`.
+- Check the env inside the container: `docker compose exec api env | grep ADMIN`
 
 **"CSRF token is missing"**
-- Admin API key doğru ayarlanmamış. Yukarıdaki adımları tekrar kontrol et.
+- The Admin API key is not properly configured. Review the steps above.
 
-## Lisans
+## License
 
 MIT
