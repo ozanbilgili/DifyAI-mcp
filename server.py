@@ -12,7 +12,7 @@ from __future__ import annotations
 import difflib
 import json
 import os
-import subprocess
+import re
 from typing import Any
 
 import httpx
@@ -56,6 +56,21 @@ def _json(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2)
 
 
+_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _validate_id(value: str, name: str = "id") -> str:
+    """Validate that an ID parameter is safe for URL path construction."""
+    if not value or not _ID_RE.match(value):
+        raise ValueError(f"Invalid {name}: must be alphanumeric with hyphens/underscores, got '{value}'")
+    return value
+
+
+def _safe_filename(name: str) -> str:
+    """Sanitize a string for safe use as a filename."""
+    return re.sub(r"[^a-zA-Z0-9_\-.]", "_", name)[:200]
+
+
 # ===========================================================================
 # 1. APP MANAGEMENT (Core CRUD)
 # ===========================================================================
@@ -92,6 +107,7 @@ def list_apps(
 @mcp.tool()
 def get_app_detail(app_id: str) -> str:
     """Get detailed information about a specific Dify application."""
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.get(f"/apps/{app_id}")
         r.raise_for_status()
@@ -116,6 +132,7 @@ def create_app(name: str, mode: str = "workflow", description: str = "") -> str:
 @mcp.tool()
 def delete_app(app_id: str) -> str:
     """Delete a Dify application."""
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.delete(f"/apps/{app_id}")
         r.raise_for_status()
@@ -130,6 +147,7 @@ def copy_app(app_id: str, name: str | None = None) -> str:
         app_id: Source app UUID.
         name: Optional new name (defaults to "Copy of <original>").
     """
+    _validate_id(app_id, "app_id")
     payload: dict[str, Any] = {}
     if name:
         payload["name"] = name
@@ -146,15 +164,15 @@ def copy_app(app_id: str, name: str | None = None) -> str:
 # ===========================================================================
 
 @mcp.tool()
-def get_app_dsl(app_id: str, include_secret: bool = False) -> str:
+def get_app_dsl(app_id: str) -> str:
     """Export a Dify application as YAML DSL.
 
     Args:
         app_id: The UUID of the application to export.
-        include_secret: Include secret values (API keys etc.) in export.
     """
+    _validate_id(app_id, "app_id")
     with _client() as c:
-        r = c.get(f"/apps/{app_id}/export", params={"include_secret": str(include_secret).lower()})
+        r = c.get(f"/apps/{app_id}/export", params={"include_secret": "false"})
         if r.status_code == 400:
             return _json({"error": "No exportable workflow found.", "detail": r.json()})
         r.raise_for_status()
@@ -176,6 +194,8 @@ def update_app_dsl(
         name: Optional name override.
         description: Optional description override.
     """
+    if app_id:
+        _validate_id(app_id, "app_id")
     payload: dict[str, Any] = {"mode": "yaml-content", "yaml_content": yaml_content}
     if app_id:
         payload["app_id"] = app_id
@@ -203,6 +223,7 @@ def update_app_dsl(
 @mcp.tool()
 def get_workflow_draft(app_id: str) -> str:
     """Get the current draft workflow definition (nodes, edges, env vars)."""
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.get(f"/apps/{app_id}/workflows/draft")
         if r.status_code == 404:
@@ -214,6 +235,7 @@ def get_workflow_draft(app_id: str) -> str:
 @mcp.tool()
 def publish_workflow(app_id: str) -> str:
     """Publish the current draft workflow to make it the active version."""
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.post(f"/apps/{app_id}/workflows/publish", json={})
         r.raise_for_status()
@@ -229,6 +251,7 @@ def list_workflow_versions(app_id: str, page: int = 1, limit: int = 20) -> str:
         page: Page number.
         limit: Items per page.
     """
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.get(f"/apps/{app_id}/workflows", params={"page": page, "limit": limit})
         r.raise_for_status()
@@ -243,6 +266,8 @@ def restore_workflow_version(app_id: str, workflow_id: str) -> str:
         app_id: Application UUID.
         workflow_id: The workflow version ID to restore.
     """
+    _validate_id(app_id, "app_id")
+    _validate_id(workflow_id, "workflow_id")
     with _client() as c:
         r = c.post(f"/apps/{app_id}/workflows/{workflow_id}/restore")
         r.raise_for_status()
@@ -257,6 +282,7 @@ def run_workflow_test(app_id: str, inputs: dict[str, Any] | None = None) -> str:
         app_id: Workflow application UUID.
         inputs: Dictionary of input variable values.
     """
+    _validate_id(app_id, "app_id")
     with _client() as c:
         events = []
         final_data: dict[str, Any] = {}
@@ -300,6 +326,8 @@ def run_single_node(app_id: str, node_id: str, inputs: dict[str, Any] | None = N
         node_id: The node ID to execute.
         inputs: Input values for the node.
     """
+    _validate_id(app_id, "app_id")
+    _validate_id(node_id, "node_id")
     with _client() as c:
         final_data: dict[str, Any] = {}
         with c.stream(
@@ -333,6 +361,8 @@ def stop_workflow_task(app_id: str, task_id: str) -> str:
         app_id: Application UUID.
         task_id: Task ID from streaming response.
     """
+    _validate_id(app_id, "app_id")
+    _validate_id(task_id, "task_id")
     with _client() as c:
         r = c.post(f"/apps/{app_id}/workflow-runs/tasks/{task_id}/stop", json={"user": "mcp-admin"})
         r.raise_for_status()
@@ -347,6 +377,7 @@ def get_default_block_configs(app_id: str, block_type: str | None = None) -> str
         app_id: Application UUID.
         block_type: Specific block type (e.g. "llm", "code", "if-else"). Omit for all.
     """
+    _validate_id(app_id, "app_id")
     with _client() as c:
         path = f"/apps/{app_id}/workflows/default-workflow-block-configs"
         if block_type:
@@ -375,6 +406,7 @@ def get_workflow_runs(
         limit: Items per page.
         status: Filter — "running", "succeeded", "failed", "stopped".
     """
+    _validate_id(app_id, "app_id")
     params: dict[str, Any] = {"page": page, "limit": limit}
     if status:
         params["status"] = status
@@ -392,6 +424,8 @@ def get_workflow_run_detail(app_id: str, run_id: str) -> str:
         app_id: Application UUID.
         run_id: Workflow run ID.
     """
+    _validate_id(app_id, "app_id")
+    _validate_id(run_id, "run_id")
     with _client() as c:
         r = c.get(f"/apps/{app_id}/workflow-runs/{run_id}")
         r.raise_for_status()
@@ -406,6 +440,8 @@ def get_node_executions(app_id: str, run_id: str) -> str:
         app_id: Application UUID.
         run_id: Workflow run ID.
     """
+    _validate_id(app_id, "app_id")
+    _validate_id(run_id, "run_id")
     with _client() as c:
         r = c.get(f"/apps/{app_id}/workflow-runs/{run_id}/node-executions")
         r.raise_for_status()
@@ -421,6 +457,7 @@ def get_workflow_app_logs(app_id: str, page: int = 1, limit: int = 20) -> str:
         page: Page number.
         limit: Items per page.
     """
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.get(f"/apps/{app_id}/workflow-app-logs", params={"page": page, "limit": limit})
         r.raise_for_status()
@@ -440,6 +477,7 @@ def get_app_statistics(app_id: str, start: str | None = None, end: str | None = 
         start: Start date (YYYY-MM-DD). Defaults to 7 days ago.
         end: End date (YYYY-MM-DD). Defaults to today.
     """
+    _validate_id(app_id, "app_id")
     params: dict[str, Any] = {}
     if start:
         params["start"] = start
@@ -474,6 +512,7 @@ def get_workflow_statistics(app_id: str, start: str | None = None, end: str | No
         start: Start date (YYYY-MM-DD).
         end: End date (YYYY-MM-DD).
     """
+    _validate_id(app_id, "app_id")
     params: dict[str, Any] = {}
     if start:
         params["start"] = start
@@ -527,6 +566,7 @@ def create_dataset(name: str, description: str = "") -> str:
 @mcp.tool()
 def get_dataset_detail(dataset_id: str) -> str:
     """Get detailed information about a dataset."""
+    _validate_id(dataset_id, "dataset_id")
     with _client() as c:
         r = c.get(f"/datasets/{dataset_id}")
         r.raise_for_status()
@@ -536,6 +576,7 @@ def get_dataset_detail(dataset_id: str) -> str:
 @mcp.tool()
 def delete_dataset(dataset_id: str) -> str:
     """Delete a knowledge base dataset."""
+    _validate_id(dataset_id, "dataset_id")
     with _client() as c:
         r = c.delete(f"/datasets/{dataset_id}")
         r.raise_for_status()
@@ -551,6 +592,7 @@ def list_documents(dataset_id: str, page: int = 1, limit: int = 20) -> str:
         page: Page number.
         limit: Items per page.
     """
+    _validate_id(dataset_id, "dataset_id")
     with _client() as c:
         r = c.get(f"/datasets/{dataset_id}/documents", params={"page": page, "limit": limit})
         r.raise_for_status()
@@ -567,6 +609,8 @@ def get_document_segments(dataset_id: str, document_id: str, page: int = 1, limi
         page: Page number.
         limit: Items per page.
     """
+    _validate_id(dataset_id, "dataset_id")
+    _validate_id(document_id, "document_id")
     with _client() as c:
         r = c.get(
             f"/datasets/{dataset_id}/documents/{document_id}/segments",
@@ -579,6 +623,7 @@ def get_document_segments(dataset_id: str, document_id: str, page: int = 1, limi
 @mcp.tool()
 def get_dataset_indexing_status(dataset_id: str) -> str:
     """Get the indexing status of a dataset."""
+    _validate_id(dataset_id, "dataset_id")
     with _client() as c:
         r = c.get(f"/datasets/{dataset_id}/indexing-status")
         r.raise_for_status()
@@ -593,6 +638,7 @@ def hit_testing(dataset_id: str, query: str) -> str:
         dataset_id: Dataset UUID.
         query: The search query to test.
     """
+    _validate_id(dataset_id, "dataset_id")
     with _client() as c:
         r = c.post(f"/datasets/{dataset_id}/hit-testing", json={"query": query})
         r.raise_for_status()
@@ -602,6 +648,7 @@ def hit_testing(dataset_id: str, query: str) -> str:
 @mcp.tool()
 def get_dataset_related_apps(dataset_id: str) -> str:
     """Get applications that use this dataset."""
+    _validate_id(dataset_id, "dataset_id")
     with _client() as c:
         r = c.get(f"/datasets/{dataset_id}/related-apps")
         r.raise_for_status()
@@ -628,6 +675,7 @@ def get_provider_models(provider: str) -> str:
     Args:
         provider: Provider name (e.g. "openai", "anthropic", "ollama").
     """
+    _validate_id(provider, "provider_name")
     with _client() as c:
         r = c.get(f"/workspaces/current/model-providers/{provider}/models")
         r.raise_for_status()
@@ -714,6 +762,7 @@ def get_environment_variables(app_id: str) -> str:
     Args:
         app_id: Application UUID.
     """
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.get(f"/apps/{app_id}/workflows/draft/environment-variables")
         if r.status_code == 404:
@@ -729,6 +778,7 @@ def get_conversation_variables(app_id: str) -> str:
     Args:
         app_id: Application UUID.
     """
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.get(f"/apps/{app_id}/workflows/draft/conversation-variables")
         if r.status_code == 404:
@@ -744,6 +794,7 @@ def get_conversation_variables(app_id: str) -> str:
 @mcp.tool()
 def list_app_api_keys(app_id: str) -> str:
     """List API keys for an application."""
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.get(f"/apps/{app_id}/api-keys")
         r.raise_for_status()
@@ -753,6 +804,7 @@ def list_app_api_keys(app_id: str) -> str:
 @mcp.tool()
 def create_app_api_key(app_id: str) -> str:
     """Create a new API key for an application."""
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.post(f"/apps/{app_id}/api-keys")
         r.raise_for_status()
@@ -767,6 +819,8 @@ def delete_app_api_key(app_id: str, api_key_id: str) -> str:
         app_id: Application UUID.
         api_key_id: API key ID to delete.
     """
+    _validate_id(app_id, "app_id")
+    _validate_id(api_key_id, "api_key_id")
     with _client() as c:
         r = c.delete(f"/apps/{app_id}/api-keys/{api_key_id}")
         r.raise_for_status()
@@ -817,6 +871,7 @@ def list_conversations(app_id: str, page: int = 1, limit: int = 20) -> str:
         page: Page number.
         limit: Items per page.
     """
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.get(f"/apps/{app_id}/chat-conversations", params={"page": page, "limit": limit})
         if r.status_code == 400:
@@ -836,6 +891,9 @@ def list_messages(app_id: str, conversation_id: str | None = None, page: int = 1
         page: Page number.
         limit: Items per page.
     """
+    _validate_id(app_id, "app_id")
+    if conversation_id:
+        _validate_id(conversation_id, "conversation_id")
     params: dict[str, Any] = {"page": page, "limit": limit}
     if conversation_id:
         params["conversation_id"] = conversation_id
@@ -857,6 +915,7 @@ def toggle_app_site(app_id: str, enable: bool) -> str:
         app_id: Application UUID.
         enable: True to enable, False to disable.
     """
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.post(f"/apps/{app_id}/site-enable", json={"enable_site": enable})
         r.raise_for_status()
@@ -871,6 +930,7 @@ def toggle_app_api(app_id: str, enable: bool) -> str:
         app_id: Application UUID.
         enable: True to enable, False to disable.
     """
+    _validate_id(app_id, "app_id")
     with _client() as c:
         r = c.post(f"/apps/{app_id}/api-enable", json={"enable_api": enable})
         r.raise_for_status()
@@ -907,6 +967,7 @@ def batch_test(app_id: str, test_cases: list[dict[str, Any]]) -> str:
                     Example: [{"name": "happy path", "inputs": {"text": "hello"}},
                               {"name": "edge case", "inputs": {"text": ""}}]
     """
+    _validate_id(app_id, "app_id")
     results = []
     with _client() as c:
         for tc in test_cases:
@@ -995,8 +1056,15 @@ def export_all_apps_dsl(output_dir: str = "./dify-exports") -> str:
 
     Args:
         output_dir: Directory path to save YAML files. Created if not exists.
+                    Restricted to relative paths under the current working directory.
     """
-    os.makedirs(output_dir, exist_ok=True)
+    # Path traversal protection: resolve and restrict to cwd
+    base = os.path.realpath(os.getcwd())
+    resolved = os.path.realpath(os.path.join(base, output_dir))
+    if not resolved.startswith(base):
+        return _json({"error": f"output_dir must be within the working directory, resolved to: {resolved}"})
+
+    os.makedirs(resolved, exist_ok=True)
     exported = []
     errors = []
     with _client() as c:
@@ -1006,12 +1074,16 @@ def export_all_apps_dsl(output_dir: str = "./dify-exports") -> str:
 
         for app in apps:
             app_id = app["id"]
-            app_name = app.get("name", app_id).replace("/", "_").replace(" ", "_")
+            app_name = _safe_filename(app.get("name", app_id))
             try:
                 r2 = c.get(f"/apps/{app_id}/export", params={"include_secret": "false"})
                 if r2.status_code == 200:
                     dsl = r2.json().get("data", "")
-                    filepath = os.path.join(output_dir, f"{app_name}.yaml")
+                    filepath = os.path.join(resolved, f"{app_name}.yaml")
+                    # Final check: ensure filepath is still within resolved dir
+                    if not os.path.realpath(filepath).startswith(resolved):
+                        errors.append({"app": app.get("name"), "error": "Filename resolved outside target directory"})
+                        continue
                     with open(filepath, "w", encoding="utf-8") as f:
                         f.write(dsl)
                     exported.append({"app": app.get("name"), "file": filepath})
