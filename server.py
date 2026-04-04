@@ -215,7 +215,7 @@ def get_workflow_draft(app_id: str) -> str:
 def publish_workflow(app_id: str) -> str:
     """Publish the current draft workflow to make it the active version."""
     with _client() as c:
-        r = c.post(f"/apps/{app_id}/workflows/publish")
+        r = c.post(f"/apps/{app_id}/workflows/publish", json={})
         r.raise_for_status()
         return _json(r.json())
 
